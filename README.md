@@ -35,6 +35,41 @@ Docker:
 docker run -v $(pwd)/config.yaml:/config.yaml ghcr.io/alileza/cactus --config /config.yaml
 ```
 
+### Probing HTTPS endpoints
+
+The image is built `FROM scratch` and ships a bundled CA store (since
+the Dockerfile fix). If you're running an older image that predates
+that change, you'll see every HTTPS probe fail with:
+
+```
+tls: failed to verify certificate: x509: certificate signed by unknown authority
+```
+
+Workaround for older images — mount the host's CA bundle in:
+
+```sh
+docker run \
+  -v $(pwd)/config.yaml:/config.yaml \
+  -v /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro \
+  ghcr.io/alileza/cactus --config /config.yaml
+```
+
+Or in `docker-compose.yml`:
+
+```yaml
+services:
+  cactus:
+    image: ghcr.io/alileza/cactus:latest
+    volumes:
+      - ./config.yaml:/config.yaml:ro
+      - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
+```
+
+The host path differs slightly across distros — `/etc/ssl/certs/ca-certificates.crt`
+on Debian/Ubuntu, `/etc/ssl/cert.pem` on Alpine, `/etc/pki/tls/cert.pem` on
+RHEL/Fedora. Mount whatever your host has at the `/etc/ssl/certs/ca-certificates.crt`
+path inside the container (which is where Go's `crypto/tls` looks by default).
+
 ## Configuration
 
 ```yaml
