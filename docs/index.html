@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cactus — minimal HTTP endpoint prober</title>
+<meta name="description" content="A tiny Go binary that probes HTTP endpoints on a configurable schedule and alerts you via Telegram when something goes down or recovers.">
+<meta property="og:title" content="cactus — minimal HTTP endpoint prober">
+<meta property="og:description" content="Parallel probes, YAML config, Telegram alerts, 6 MB static binary.">
+<meta property="og:type" content="website">
+
+<style>
+  /* ---- Tokens ---- */
+  :root {
+    --accent-blue:   #0057ff;
+    --accent-red:    #ff4034;
+    --accent-green:  #00db7f;
+    --accent-orange: #ff6f06;
+    --accent-purple: #622eff;
+
+    --content-primary:   #0a0d12;
+    --content-secondary: #6b7280;
+    --content-tertiary:  #9ca4ad;
+
+    --surface-primary:   #ffffff;
+    --surface-secondary: rgba(0, 42, 97, 0.04);
+    --surface-elevated:  #ffffff;
+    --surface-inverted:  #0e1116;
+
+    --border-primary:   rgba(0, 42, 97, 0.10);
+    --border-secondary: rgba(0, 42, 97, 0.18);
+
+    --radius-tiny: 4px;
+    --radius-xs:   8px;
+    --radius-sm:  12px;
+    --radius-md:  16px;
+    --radius-lg:  24px;
+
+    --shadow-sm: 0 2px 12px 0 rgb(0 0 0 / 0.06);
+    --shadow-lg: 0 24px 60px -20px rgb(0 0 0 / 0.18);
+
+    --font-sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    font-family: var(--font-sans);
+    font-weight: 450;
+    font-size: 16px;
+    color: var(--content-primary);
+    background: var(--surface-primary);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent-blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  h1, h2, h3 { font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; }
+  h1 { font-size: clamp(36px, 6vw, 64px); }
+  h2 { font-size: 28px; }
+  h3 { font-size: 18px; }
+  code, pre { font-family: var(--font-mono); }
+  pre { white-space: pre; overflow-x: auto; }
+
+  /* ---- Nav ---- */
+  header.nav {
+    position: sticky; top: 0; z-index: 10;
+    background: rgba(255,255,255,0.85); backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border-primary);
+    padding: 14px 32px;
+    display: flex; align-items: center; gap: 20px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand .mark {
+    width: 28px; height: 28px; border-radius: 7px;
+    background: linear-gradient(135deg, #14181f, #2b323e);
+    display: grid; place-items: center;
+    color: #fff; font-weight: 800; font-size: 16px;
+    box-shadow: var(--shadow-sm);
+  }
+  .brand .name { font-weight: 720; font-size: 17px; letter-spacing: -0.01em; }
+  nav.links { display: flex; gap: 6px; margin-left: auto; align-items: center; }
+  nav.links a {
+    color: var(--content-primary); padding: 6px 12px;
+    border-radius: var(--radius-xs); font-size: 14px; font-weight: 580;
+    transition: background 0.15s;
+  }
+  nav.links a:hover { background: var(--surface-secondary); text-decoration: none; }
+  nav.links a.primary { background: var(--content-primary); color: #fff; }
+  nav.links a.primary:hover { background: #1f2630; }
+
+  /* ---- Layout ---- */
+  main { max-width: 1100px; margin: 0 auto; padding: 0 32px; }
+  section { padding: 56px 0; }
+
+  /* ---- Hero ---- */
+  section.hero { padding: 80px 0 60px; }
+  .hero .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 12px; font-weight: 680; color: var(--accent-blue);
+    background: rgba(0, 87, 255, 0.08);
+    padding: 5px 10px; border-radius: 999px;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    margin-bottom: 20px;
+  }
+  .hero .eyebrow .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent-green); box-shadow: 0 0 0 3px rgba(0,219,127,0.2);
+  }
+  .hero p.lede {
+    margin-top: 18px; max-width: 640px;
+    font-size: 20px; color: var(--content-secondary); line-height: 1.5;
+  }
+  .cta-row { display: flex; gap: 12px; margin-top: 28px; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 11px 18px; border-radius: var(--radius-xs);
+    font-weight: 600; font-size: 14px;
+    transition: all 0.15s; border: 1px solid transparent;
+  }
+  .btn:hover { text-decoration: none; transform: translateY(-1px); }
+  .btn.primary { background: var(--content-primary); color: #fff; }
+  .btn.primary:hover { background: #1f2630; }
+  .btn.secondary {
+    background: var(--surface-primary); color: var(--content-primary);
+    border-color: var(--border-secondary);
+  }
+  .btn.secondary:hover { background: var(--surface-secondary); }
+  .btn .meta { color: var(--content-tertiary); font-weight: 500; margin-left: 4px; }
+
+  /* ---- Terminal preview ---- */
+  .preview {
+    margin-top: 56px;
+    border-radius: var(--radius-lg);
+    background: var(--surface-inverted);
+    overflow: hidden;
+    box-shadow: var(--shadow-lg);
+    border: 1px solid #1f2630;
+  }
+  .preview .titlebar {
+    height: 32px; background: #161b22;
+    display: flex; align-items: center; gap: 6px;
+    padding: 0 12px;
+    border-bottom: 1px solid #21262d;
+  }
+  .preview .titlebar .dot { width: 11px; height: 11px; border-radius: 50%; }
+  .preview .titlebar .red    { background: #ff5f57; }
+  .preview .titlebar .yellow { background: #febc2e; }
+  .preview .titlebar .green  { background: #28c840; }
+  .preview .titlebar .label {
+    margin-left: auto;
+    font-family: var(--font-mono); font-size: 11px; color: #8b949e;
+  }
+  .preview .terminal {
+    padding: 20px 24px;
+    font-family: var(--font-mono); font-size: 13px; line-height: 1.8;
+    color: #e6edf3;
+  }
+  .preview .terminal .row { display: flex; gap: 12px; align-items: baseline; }
+  .preview .terminal .ts   { color: #6e7681; min-width: 155px; }
+  .preview .terminal .name { color: #58a6ff; }
+  .preview .terminal .ok   { color: #3fb950; font-weight: 600; }
+  .preview .terminal .fail { color: #f85149; font-weight: 600; }
+  .preview .terminal .info { color: #e6edf3; }
+  .preview .terminal .dim  { color: #8b949e; }
+  .preview .terminal .divider {
+    border: none; border-top: 1px solid #21262d;
+    margin: 10px 0;
+  }
+  .preview .terminal .alert-row {
+    background: rgba(248, 81, 73, 0.08);
+    border-left: 2px solid #f85149;
+    padding: 6px 10px; border-radius: 0 4px 4px 0;
+    margin: 4px 0;
+  }
+  .preview .terminal .resolve-row {
+    background: rgba(63, 185, 80, 0.08);
+    border-left: 2px solid #3fb950;
+    padding: 6px 10px; border-radius: 0 4px 4px 0;
+    margin: 4px 0;
+  }
+
+  /* ---- Section heads ---- */
+  .section-head { margin-bottom: 28px; }
+  .section-head .kicker {
+    font-size: 12px; font-weight: 680; color: var(--accent-blue);
+    text-transform: uppercase; letter-spacing: 0.08em;
+    margin-bottom: 8px;
+  }
+  .section-head p {
+    margin-top: 8px; color: var(--content-secondary); font-size: 16px; max-width: 640px;
+  }
+
+  /* ---- Feature grid ---- */
+  .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  @media (max-width: 900px) { .features { grid-template-columns: 1fr; } }
+  .feature {
+    background: var(--surface-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md);
+    padding: 24px;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .feature:hover { transform: translateY(-2px); box-shadow: var(--shadow-sm); }
+  .feature .icon {
+    width: 36px; height: 36px; border-radius: var(--radius-xs);
+    display: grid; place-items: center;
+    margin-bottom: 14px; font-size: 18px;
+  }
+  .feature .icon.blue   { background: rgba(0, 87, 255, 0.1);  color: var(--accent-blue); }
+  .feature .icon.green  { background: rgba(0, 219, 127, 0.1); color: var(--accent-green); }
+  .feature .icon.orange { background: rgba(255, 111, 6, 0.1); color: var(--accent-orange); }
+  .feature .icon.red    { background: rgba(255, 64, 52, 0.1); color: var(--accent-red); }
+  .feature .icon.purple { background: rgba(98, 46, 255, 0.1); color: var(--accent-purple); }
+  .feature h3 { margin-bottom: 6px; }
+  .feature p { color: var(--content-secondary); font-size: 14px; }
+
+  /* ---- Pipeline ---- */
+  .pipeline {
+    display: grid; grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr;
+    gap: 12px; align-items: center;
+  }
+  @media (max-width: 900px) {
+    .pipeline { grid-template-columns: 1fr; }
+    .pipeline .arrow { transform: rotate(90deg); }
+  }
+  .stage {
+    background: var(--surface-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md);
+    padding: 20px; text-align: center;
+  }
+  .stage .stage-icon { font-size: 28px; margin-bottom: 8px; }
+  .stage .stage-name { font-weight: 680; font-size: 15px; }
+  .stage .stage-tech { font-family: var(--font-mono); font-size: 11.5px; color: var(--content-secondary); margin-top: 4px; }
+  .arrow { color: var(--content-tertiary); font-size: 24px; text-align: center; }
+
+  /* ---- Quickstart ---- */
+  .quickstart {
+    background: var(--surface-inverted); color: #e6edf3;
+    border-radius: var(--radius-md);
+    padding: 24px 28px;
+    font-family: var(--font-mono);
+    font-size: 13.5px; line-height: 1.7;
+    overflow-x: auto;
+  }
+  .quickstart .prompt  { color: #8b949e; user-select: none; }
+  .quickstart .comment { color: #6e7681; }
+
+  /* ---- Config block ---- */
+  .config-block {
+    background: var(--surface-inverted); color: #e6edf3;
+    border-radius: var(--radius-md);
+    padding: 24px 28px;
+    font-family: var(--font-mono);
+    font-size: 13px; line-height: 1.7;
+    overflow-x: auto;
+    margin-top: 16px;
+  }
+  .config-block .k { color: #79c0ff; }
+  .config-block .v { color: #a5d6ff; }
+  .config-block .s { color: #a8ff8a; }
+  .config-block .c { color: #6e7681; }
+
+  /* ---- Footer ---- */
+  footer {
+    margin-top: 64px; padding: 32px;
+    border-top: 1px solid var(--border-primary);
+    background: var(--surface-secondary);
+  }
+  footer .inner {
+    max-width: 1100px; margin: 0 auto;
+    display: flex; gap: 24px; align-items: center; flex-wrap: wrap;
+    font-size: 13px; color: var(--content-secondary);
+  }
+  footer .inner .grow { flex: 1 1 0; }
+  footer .inner a { color: var(--content-secondary); }
+  footer .inner a:hover { color: var(--content-primary); text-decoration: none; }
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="brand">
+    <span class="mark">C</span>
+    <span class="name">cactus</span>
+  </div>
+  <nav class="links">
+    <a href="#features">Features</a>
+    <a href="#how-it-works">How it works</a>
+    <a href="#quickstart">Quick start</a>
+    <a href="https://github.com/alileza/cactus" class="primary">GitHub →</a>
+  </nav>
+</header>
+
+<main>
+  <section class="hero">
+    <span class="eyebrow"><span class="dot"></span>Zero dependencies · 6 MB binary</span>
+    <h1>HTTP endpoint prober.<br>Dead simple.</h1>
+    <p class="lede">
+      Configure the endpoints you care about, set an interval, and get a Telegram
+      message the moment something goes down — and another when it recovers.
+      No agents, no dashboards, no YAML sprawl.
+    </p>
+    <div class="cta-row">
+      <a href="#quickstart" class="btn primary">Get started →</a>
+      <a href="https://github.com/alileza/cactus" class="btn secondary">
+        View source <span class="meta">on GitHub</span>
+      </a>
+    </div>
+
+    <div class="preview" aria-label="cactus terminal output">
+      <div class="titlebar">
+        <span class="dot red"></span>
+        <span class="dot yellow"></span>
+        <span class="dot green"></span>
+        <span class="label">cactus — config.yaml</span>
+      </div>
+      <div class="terminal">
+        <div class="row">
+          <span class="ts">2026/06/02 09:00:00</span>
+          <span class="info">cactus started with 3 probe(s)</span>
+        </div>
+        <div class="row">
+          <span class="ts">2026/06/02 09:00:00</span>
+          <span class="name">[public-api]</span>
+          <span class="ok">OK</span>
+        </div>
+        <div class="row">
+          <span class="ts">2026/06/02 09:00:00</span>
+          <span class="name">[auth-api]</span>
+          <span class="ok">OK</span>
+        </div>
+        <div class="row">
+          <span class="ts">2026/06/02 09:00:00</span>
+          <span class="name">[payment-api]</span>
+          <span class="ok">OK</span>
+        </div>
+        <hr class="divider">
+        <div class="row">
+          <span class="ts">2026/06/02 09:01:00</span>
+          <span class="name">[public-api]</span>
+          <span class="ok">OK</span>
+        </div>
+        <div class="row">
+          <span class="ts">2026/06/02 09:01:00</span>
+          <span class="name">[auth-api]</span>
+          <span class="ok">OK</span>
+        </div>
+        <div class="row">
+          <span class="ts">2026/06/02 09:01:00</span>
+          <span class="name">[payment-api]</span>
+          <span class="fail">FAIL</span>
+          <span class="dim">got status 503, want 200</span>
+        </div>
+        <div class="alert-row">
+          <span class="dim">→ Telegram</span>&nbsp;
+          <span style="color:#f85149">[FIRING] payment-api is down</span>
+          <span class="dim"> · URL: https://pay.example.com/health</span>
+        </div>
+        <hr class="divider">
+        <div class="row">
+          <span class="ts">2026/06/02 09:02:00</span>
+          <span class="name">[payment-api]</span>
+          <span class="ok">OK</span>
+        </div>
+        <div class="resolve-row">
+          <span class="dim">→ Telegram</span>&nbsp;
+          <span style="color:#3fb950">[RESOLVED] payment-api is back up</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="section-head">
+      <div class="kicker">What's in the box</div>
+      <h2>Everything you need. Nothing you don't.</h2>
+      <p>One binary, one config file. Every probe runs in its own goroutine — no probe blocks another.</p>
+    </div>
+    <div class="features">
+      <div class="feature">
+        <div class="icon blue">⇉</div>
+        <h3>Fully parallel</h3>
+        <p>Each probe runs in its own goroutine with its own ticker. A slow or hanging endpoint never delays the others.</p>
+      </div>
+      <div class="feature">
+        <div class="icon green">◎</div>
+        <h3>Alert on transition only</h3>
+        <p>You get one message when something breaks and one when it recovers. No repeated noise for sustained failures.</p>
+      </div>
+      <div class="feature">
+        <div class="icon orange">⌘</div>
+        <h3>YAML config</h3>
+        <p>Method, URL, interval, headers, Basic Auth, and expected status — all per probe, all in one readable file.</p>
+      </div>
+      <div class="feature">
+        <div class="icon purple">✈</div>
+        <h3>Telegram receiver</h3>
+        <p>Plug in a bot token and chat ID and you're done. The notifier interface makes it easy to add more receivers later.</p>
+      </div>
+      <div class="feature">
+        <div class="icon blue">↩</div>
+        <h3>Follows redirects</h3>
+        <p>The HTTP client follows up to 10 redirects automatically. What you configure is the final resolved status code.</p>
+      </div>
+      <div class="feature">
+        <div class="icon red">◈</div>
+        <h3>Tiny static binary</h3>
+        <p>6 MB stripped, built on <code>scratch</code>. Runs on any Linux host or in a minimal Docker container with no runtime deps.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="how-it-works">
+    <div class="section-head">
+      <div class="kicker">Architecture</div>
+      <h2>One loop per probe. Four packages.</h2>
+      <p>Each probe goroutine is independent. State transitions (up→down, down→up) are detected locally and fan out to all configured receivers.</p>
+    </div>
+    <div class="pipeline">
+      <div class="stage">
+        <div class="stage-icon">📄</div>
+        <div class="stage-name">Config</div>
+        <div class="stage-tech">config.Load()</div>
+      </div>
+      <div class="arrow">→</div>
+      <div class="stage">
+        <div class="stage-icon">🔁</div>
+        <div class="stage-name">Probe</div>
+        <div class="stage-tech">prober.Run()</div>
+      </div>
+      <div class="arrow">→</div>
+      <div class="stage">
+        <div class="stage-icon">🔔</div>
+        <div class="stage-name">Alert</div>
+        <div class="stage-tech">notifier.Notifier</div>
+      </div>
+      <div class="arrow">→</div>
+      <div class="stage">
+        <div class="stage-icon">✈</div>
+        <div class="stage-name">Telegram</div>
+        <div class="stage-tech">Bot API</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="quickstart">
+    <div class="section-head">
+      <div class="kicker">Quick start</div>
+      <h2>Running in under a minute.</h2>
+      <p>Pull the image or build from source — then point it at your config.</p>
+    </div>
+
+    <div class="quickstart"><span class="comment"># Docker (recommended)</span>
+<span class="prompt">$</span> docker pull ghcr.io/alileza/cactus:latest
+<span class="prompt">$</span> docker run -v $(pwd)/config.yaml:/config.yaml ghcr.io/alileza/cactus
+
+<span class="comment"># Or build from source (requires Go 1.26+)</span>
+<span class="prompt">$</span> git clone git@github.com:alileza/cactus.git
+<span class="prompt">$</span> cd cactus
+<span class="prompt">$</span> go build -ldflags="-s -w" -o cactus .
+<span class="prompt">$</span> ./cactus --config config.yaml</div>
+
+    <div class="config-block"><span class="c"># config.yaml</span>
+<span class="k">probes</span>:
+  - <span class="k">name</span>: <span class="s">public-api</span>
+    <span class="k">url</span>: <span class="s">https://example.com/health</span>
+    <span class="k">method</span>: <span class="s">GET</span>
+    <span class="k">interval</span>: <span class="s">30s</span>
+    <span class="k">expected_status</span>: <span class="v">200</span>
+
+  - <span class="k">name</span>: <span class="s">protected-api</span>
+    <span class="k">url</span>: <span class="s">https://example.com/admin</span>
+    <span class="k">method</span>: <span class="s">GET</span>
+    <span class="k">interval</span>: <span class="s">60s</span>
+    <span class="k">auth</span>:
+      <span class="k">username</span>: <span class="s">user</span>
+      <span class="k">password</span>: <span class="s">pass</span>
+    <span class="k">expected_status</span>: <span class="v">200</span>
+
+<span class="k">receivers</span>:
+  <span class="k">telegram</span>:
+    <span class="k">bot_token</span>: <span class="s">"YOUR_BOT_TOKEN"</span>
+    <span class="k">chat_id</span>: <span class="s">"YOUR_CHAT_ID"</span></div>
+  </section>
+</main>
+
+<footer>
+  <div class="inner">
+    <span>cactus — MIT-licensed open source</span>
+    <span class="grow"></span>
+    <a href="https://github.com/alileza/cactus">GitHub</a>
+    <a href="https://github.com/alileza/cactus/blob/main/LICENSE">License</a>
+    <a href="https://github.com/alileza/cactus/issues">Issues</a>
+  </div>
+</footer>
+
+</body>
+</html>
