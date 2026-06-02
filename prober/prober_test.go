@@ -98,20 +98,43 @@ func TestRun_NoAlertOnSteadyOK(t *testing.T) {
 	mock.expectNone(t, 100*time.Millisecond)
 }
 
-func TestRun_AlertOnlyOnceForRepeatedFailures(t *testing.T) {
+func TestRun_AlertOnlyOnceWithinRepeatInterval(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
 	defer srv.Close()
 
+	// Default repeat_interval is 10 min; within a short window only one alert fires.
 	mock := newMock()
 	stop := probe(probeConfig(srv.URL), mock)
 	defer stop()
 
-	// First alert expected.
 	mock.recv(t, time.Second)
-	// No second alert for sustained failure.
 	mock.expectNone(t, 100*time.Millisecond)
+}
+
+func TestRun_RepeatAlertAfterInterval(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	cfg := probeConfig(srv.URL)
+	cfg.RepeatInterval = config.Duration{Duration: 60 * time.Millisecond}
+
+	mock := newMock()
+	stop := probe(cfg, mock)
+	defer stop()
+
+	first := mock.recv(t, time.Second)
+	if first.up {
+		t.Error("first alert: want down")
+	}
+	// After repeat interval elapses a second down alert should fire.
+	second := mock.recv(t, time.Second)
+	if second.up {
+		t.Error("repeat alert: want down")
+	}
 }
 
 func TestRun_RecoveryAlert(t *testing.T) {

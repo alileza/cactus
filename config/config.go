@@ -22,6 +22,7 @@ type ProbeConfig struct {
 	URL            string            `yaml:"url"`
 	Method         string            `yaml:"method"`
 	Interval       Duration          `yaml:"interval"`
+	RepeatInterval Duration          `yaml:"repeat_interval"`
 	Auth           *AuthConfig       `yaml:"auth,omitempty"`
 	Headers        map[string]string `yaml:"headers,omitempty"`
 	ExpectedStatus int               `yaml:"expected_status"`

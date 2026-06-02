@@ -15,8 +15,8 @@ import (
 )
 
 type state struct {
-	up      bool
-	checked bool
+	up          bool
+	lastAlerted time.Time // zero means no alert has fired yet
 }
 
 // Run executes the probe loop for cfg until stop is closed.
@@ -98,20 +98,26 @@ func markDown(cfg *config.ProbeConfig, s *state, n notifier.Notifier, err error)
 	log.Printf("[%s] FAIL: %v", cfg.Name, err)
 	wasUp := s.up
 	s.up = false
-	// Alert on first check or on transition from up → down.
-	if !s.checked || wasUp {
-		n.Alert(cfg.Name, cfg.URL, false, err.Error())
+
+	repeat := cfg.RepeatInterval.Duration
+	if repeat <= 0 {
+		repeat = 10 * time.Minute
 	}
-	s.checked = true
+
+	// Alert on first failure, on up→down transition, or when repeat interval has elapsed.
+	if wasUp || s.lastAlerted.IsZero() || time.Since(s.lastAlerted) >= repeat {
+		n.Alert(cfg.Name, cfg.URL, false, err.Error())
+		s.lastAlerted = time.Now()
+	}
 }
 
 func markUp(cfg *config.ProbeConfig, s *state, n notifier.Notifier) {
 	log.Printf("[%s] OK", cfg.Name)
 	wasUp := s.up
 	s.up = true
-	// Alert only on recovery; suppress steady-state OK.
-	if s.checked && !wasUp {
+	// Send resolve only if we previously fired a down alert.
+	if !wasUp && !s.lastAlerted.IsZero() {
 		n.Alert(cfg.Name, cfg.URL, true, "")
+		s.lastAlerted = time.Time{}
 	}
-	s.checked = true
 }
