@@ -1,0 +1,28 @@
+probes:
+  - name: public-api
+    url: https://httpbin.org/status/200
+    method: GET
+    interval: 30s
+    expected_status: 200
+
+  - name: protected-api
+    url: https://httpbin.org/basic-auth/user/pass
+    method: GET
+    interval: 60s
+    auth:
+      username: user
+      password: pass
+    expected_status: 200
+
+  - name: post-endpoint
+    url: https://httpbin.org/post
+    method: POST
+    interval: 2m
+    headers:
+      Content-Type: application/json
+    expected_status: 200
+
+receivers:
+  telegram:
+    bot_token: "YOUR_BOT_TOKEN"
+    chat_id: "YOUR_CHAT_ID"
